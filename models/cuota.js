@@ -32,7 +32,7 @@ const cuotaSchema = Schema({
         type:String,
         default:1
     },
-
+    //Pendiente cambiar este campo a number 
     motivo:{
         type:String,
         default: 1

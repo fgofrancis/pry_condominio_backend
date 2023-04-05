@@ -9,11 +9,14 @@ const { crearCuota,
         buscarCuotaByIdApartamento,
         deleteCuotaByIdApartamento,
         procUdateCuotaApto,
-        buscarProcesoCuotaMax
+        buscarProcesoCuotaMax,
+        resumenCuotas,
+        validarSaldos
      } = require('../controllers/cuotas.controller');
 
 
 const router = Router();
+
 
 router.get('/', getCuotas);
 
@@ -21,13 +24,14 @@ router.post('/', crearCuota);
 router.get('/generarcuotas/:fechacuotas', generarCuotas);
 router.get('/procesocuotamax/', buscarProcesoCuotaMax);
 
-/**
- * Para probar los get de abajo debo deshabiliar uno u otro. Denny
- */
+router.get('/resumen/:anio',resumenCuotas);
+router.get('/validasaldo',validarSaldos);
 router.get('/:id', buscarCuotaById);
-router.get('/apto/:idapartamento',buscarCuotaByIdApartamento)
 
-router.delete('/:idapartamento',deleteCuotaByIdApartamento)
-router.put('/proceso',procUdateCuotaApto)
+router.get('/apto/:idapartamento',buscarCuotaByIdApartamento);
+
+router.delete('/:idapartamento',deleteCuotaByIdApartamento);
+router.put('/proceso',procUdateCuotaApto);
+
 
 module.exports = router;

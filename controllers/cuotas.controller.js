@@ -1,9 +1,11 @@
+const mongoose = require('mongoose');
 const { response }= require('express');
 const { firstDayLastDayMonth } = require('../helpers/range-date');
 const Apartamento = require('../models/apartamento');
 const bloque = require('../models/bloque');
 const Cuota = require("../models/cuota");
 const Procesocuota = require('../models/procesocuota');
+
 
 const FECHABASE = '1972-06-27';
 const getCuotas = async(req, res=response)=>{
@@ -52,7 +54,6 @@ const generarCuotas = async (req, res=response)=>{
 
     // const FECHABASE = '1972-06-27';
     const {fechacuotas } = req.params
-    // console.log('fechacuota..: ', fechacuotas)
 
     const fechaCompara   = new Date(FECHABASE);
     const fecpagoCompara = new Date(fechacuotas);
@@ -88,11 +89,13 @@ const generarCuotas = async (req, res=response)=>{
                 if (fecpagoCompara.toDateString() === fechaCompara.toDateString()){
                     query = [{idapartamento:apto._id}, {estatus:true}]
                 }else{
-                    query = [{idapartamento:apto._id}, {estatus:true},
-                    {fechacuota: {$gte:startDate, $lte:endDate}}]
+                    query = [{ idapartamento:apto._id}, {estatus:true},
+                             { fechacuota: {$gte:startDate, $lte:endDate} }
+                            ]
                 }    
 
                 const cuotaExist = await Cuota.find( {$and:query} );
+                // const cuotaExist = await Cuota.find( {$and:query} ).lean();
                 // db.posts.find({created_on: {$gte: start, $lt: end}}); It is between
 
                 if(cuotaExist.length > 0  || !cuotaExist){
@@ -166,7 +169,8 @@ const buscarCuotaById = async(req, res=response)=>{
 const buscarCuotaByIdApartamento = async(req, res=response)=>{
 
     const {idapartamento} = req.params;
-    const query = {idapartamento:idapartamento, senal:'1'};
+    const query = {idapartamento:idapartamento, senal:'1',estatus:true};
+    
     const cuotas = await Cuota.find(query).populate('idapartamento')
                               .sort({fechacuota:1});
 
@@ -235,6 +239,205 @@ const buscarCuotaByIdApartamento = async(req, res=response)=>{
 
  }
 
+//  const resumenCuotas = async(req, res=response)=>{
+
+//     try {
+        
+//         const saldoTotal = await Cuota.aggregate([
+//             {
+//               $match: {
+//                 senal: '1',
+//                 estatus: true
+//               }
+//             },
+//             {
+//               $group: {
+//                 _id: '$idapartamento',
+//                 total: { $sum: '$saldo' }
+//               }
+//             }
+//           ]);
+//           res.status(200).json({
+//             ok:true,
+//             saldoTotal
+//           })
+//     } catch (error) {
+//         console.log(error);
+//         return res.status(500).json({
+//             ok:false,
+//             mgs:'Error hable con el Administrador'
+//         })
+//     }
+//  };
+
+// const resumenCuotas = async(req, res = response) => {
+
+//     const apartamentos = await Apartamento.find({estatus:true}).sort({codigo:1});
+//     // const apartamentos = await Apartamento.find({codigo:'A-102'});
+//     // const apartamentos = await Apartamento.find({codigo: {$in:['A-102', 'B-104', 'D-105']} });
+//     const saldosPorApartamento = [];
+  
+//     for (const apartamento of apartamentos) {
+//       const cuotas = await Cuota.find({ idapartamento: apartamento._id, estatus:true, senal:'1' });
+  
+//       const saldosPorMes = {};
+//       let total = 0;
+//       for (const cuota of cuotas) {
+//         const mes = new Date(cuota.fechacuota).toLocaleString('default', { month: 'short' });
+//         const mes_limpio = mes.replace('.','');
+
+//         if (!saldosPorMes[mes_limpio]) {
+//           saldosPorMes[mes_limpio] = cuota.saldo;
+//         } else {
+//           saldosPorMes[mes_limpio] += cuota.saldo;
+//         }
+
+//         total += cuota.saldo;
+//       }
+  
+//       const saldoPorApartamento = {
+//         codigo: apartamento.codigo,
+//         saldosPorMes: saldosPorMes,
+//         total: total
+//       };
+  
+//       saldosPorApartamento.push(saldoPorApartamento);
+//     }
+  
+//     // return saldosPorApartamento;
+//   res.status(200).json({
+//     ok:true,
+//     saldosPorApartamento
+//   })
+
+//   };  
+  
+const resumenCuotas = async(req, res = response) => {
+
+    const apartamentos = await Apartamento.find({estatus:true});
+    const apartamentoIds = apartamentos.map(a => a._id);
+
+    let matchStage = { $match:{ $expr:{ $eq:[1,1]}}}; 
+
+    const { anio } = req.params;
+    if( anio !== '1' ){
+      console.log('entró..', anio)
+      matchStage = {$match:{ $expr:{ $eq:[{ $year:'$fechacuota'}, parseInt(anio)]} }}
+    }
+  
+    const cuotas = await Cuota.aggregate([
+      {
+        $match: {
+          idapartamento: { $in: apartamentoIds },
+          estatus: true
+        }
+      },
+      matchStage,
+      {
+        $group: {
+          _id: {
+            idapartamento: "$idapartamento",
+            mes: { $month: "$fechacuota" }
+          },
+          saldo: { $sum: "$saldo" }
+        }
+      },
+      {
+        $group: {
+          _id: "$_id.idapartamento",
+          saldosPorMes: {
+            $push: {
+              mes: "$_id.mes",
+              saldo: "$saldo"
+            }
+          },
+          total: { $sum: "$saldo" }
+        }
+      },
+      {
+        $lookup: {
+          from: "apartamentos",
+          localField: "_id",
+          foreignField: "_id",
+          as: "apartamento"
+        }
+      },
+      {
+        $project: {
+          codigo: { $arrayElemAt: [ "$apartamento.codigo", 0 ] },
+          saldosPorMes: 1,
+          total: 1
+        }
+      }
+    ]);
+  
+    // Transformar saldosPorMes para usar nombres de mes en lugar de números
+    cuotas.forEach((c) => {
+        const saldosPorMes = {};
+        c.saldosPorMes.forEach((s) => {
+        //   const mes = new Date(Date.UTC(2022, s.mes - 1, 1)).toLocaleString('default', { month: 'short' });
+         const mes = new Date(Date.UTC((2022), s.mes , 1)).toLocaleString('default', { month: 'short' });
+         const mes_limpio = mes.replace('.','');
+         saldosPorMes[mes_limpio] = s.saldo;
+        });
+        c.saldosPorMes = saldosPorMes;
+      });
+
+    // Ordenar por codigo de apartamento
+    cuotas.sort( (a,b)=>{
+        if( a.codigo < b.codigo ){
+            return -1;
+        }
+        if( a.codigo > b.codigo ){
+            return 1;
+        }
+        return 0;
+    }); 
+
+    res.status(200).json({
+      ok:true,
+      saldosPorApartamento: cuotas
+    });
+  };
+const validarSaldos = async(req, res=response)=>{
+
+    const saldoAtpoCuota = await Apartamento.aggregate([
+        {
+          $lookup: {
+            from: "cuotas",
+            localField: "_id",
+            foreignField: "idapartamento",
+            as: "cuotas"
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            idapartamento: "$_id",
+            codigo:"$codigo",
+            saldo:"$saldomantenimiento",
+            saldoEnCuota: {
+              $sum: "$cuotas.saldo"
+            }
+          }
+        }
+    ]);
+   
+    /**
+     * Ambas instrucciones son validas, solo que la primera es mas resumida, Denny
+     */
+    // const saldosDiff = saldoAtpoCuota.filter(item => item.saldo !== item.saldomantenimiento);   
+    const saldosDiff = saldoAtpoCuota.filter((item)=>{
+       return  item.saldo !== item.saldoEnCuota
+    });
+
+    res.status(200).json({
+        ok:true,
+        saldosDiff
+    })
+}
+  
+
 module.exports ={
     crearCuota,
     getCuotas,
@@ -243,5 +446,7 @@ module.exports ={
     buscarCuotaByIdApartamento,
     deleteCuotaByIdApartamento,
     procUdateCuotaApto,
-    buscarProcesoCuotaMax
+    buscarProcesoCuotaMax,
+    resumenCuotas,
+    validarSaldos
 }

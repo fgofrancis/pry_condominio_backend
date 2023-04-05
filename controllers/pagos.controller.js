@@ -1,4 +1,6 @@
 const { response } = require("express");
+const { mongoose }=require('mongoose')
+
 const { firstDayLastDayMonth } = require("../helpers/range-date");
 const Apartamento = require("../models/apartamento");
 const Cuota = require("../models/cuota");
@@ -40,10 +42,11 @@ const pagoCuota = async(req, res)=>{
     const apartamentoDB = await Apartamento.findById(idapartamento);
 
     let balance = 0;
-    let saldoantedelpago = 0;
+    // let saldoantedelpago = 0;
     let saldodespuesdelpago = 0;
 
-    saldoantedelpago = parseFloat(apartamentoDB.saldomantenimiento);
+    const saldoantedelpago = parseFloat(apartamentoDB.saldomantenimiento);
+
     if ( parseFloat(monto) <= parseFloat(apartamentoDB.saldomantenimiento)   ){
         balance = parseFloat(apartamentoDB.saldomantenimiento) - parseFloat(monto);
         saldodespuesdelpago = balance;
@@ -269,7 +272,8 @@ const buscarReciboByIdApartamento = async (req, res=response)=>{
          // Preparando query
         const [startDate,endDate] = firstDayLastDayMonth(fecpago)
         query = [{idapartamento:idapartamento}, {estatus:true},
-                 {fechageneracion: {$gte:startDate, $lte:endDate}}]
+                 {fechageneracion: {$gte:startDate, $lte:endDate}}
+                ]
     }
 
     const [count, pagos ] = await Promise.all([
@@ -308,35 +312,133 @@ const buscarDetalleReciboByIdPago = async (req, res=response)=>{
    
 };
 const anularPagoByIdPago = async (req, res=response)=>{
-    console.log('anularPagoByIdPago');
-
+ 
     const { idpago } = req.params
-    const pagoDB = await Pago.findById({_id:idpago}, {estatus:true});
+    const query = { _id:idpago, estatus:true };
+    let fechaUltimaCuota = null;
+    let isAbono = false;
 
-    const today = new Date();
-    if(pagoDB.fecpago !== today){
-        return res.status(400).json({
-            msg:'El Pago no puede ser Anulado, fue realizado en otra fecha'
-        })
-    };
+    /* Tengo dos way, sacar en el find de Pago el idpago y idApto o mandar en la 
+       anulacion el idpago y el idApto para evitarme el forEach
+    */
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    const pagodetalle = await Pagodetalle.updateMany({idpago:pagoDB._id, estatus:true}, {estatus:false})
-    console.log('IdDocumento Actualizado: ',pagodetalle.upsertedId);
+   try {
 
-    pagodetalle.forEach(async(pdetalle)=>{
-        const cuotaDB = await Cuota.findById(pdetalle.idcuota);
-        if(cuotaDB.motivo === 1){
-            await Cuota.findByIdAndUpdate({_id:pdetalle.idcuota}, {saldo:saldo + pdetalle.monto, senal:1})
-
-        }else{
-            //tratar cuota de abono
-        }
-
-        let newSaldoCuota = pdetalle
+       const pagoDoc= await Pago.findOne(query)
+                                .select('_id idapartamento monto saldoantedelpago fechageneracion')
+                                .session(session); 
        
-    })
-    await Apartamento.findByIdAndUpdate({_id:pagoDB.idapartamento}, {saldomantenimiento:saldomantenimiento + pagoDB.monto});
+       // Si no se encuentra el pago, devolver un error 404
+       if (!pagoDoc) {
+           await session.abortTransaction();
+           return res.status(404).json({
+             ok: false,
+             msg: 'Pago no encontrado',
+           });
+         }
+                                   
+       const { id:idpagoDB,idapartamento:idapartametoDB, 
+               monto:montoDB, saldoantedelpago:saldoantedelpagoDB,
+               fechageneracion:fechageneracionDB  
+       } = pagoDoc;
+
+       const isPagomayor = await Pago.find({ idapartamento:idapartametoDB, 
+                                             fechageneracion:{$gt:new Date(fechageneracionDB)},
+                                             estatus:true 
+                                          }).session(session);
+
+        /* Debe mejorar el uso de los status(400,401,402,403,404,etc) Denny*/
+       if(isPagomayor.length > 0){
+            await session.abortTransaction();
+            return res.status(404).json({
+                ok:false,
+                msg:'Pago no puede ser Anulado, no es el Ultimo pago'
+            })
+       }
+
+       const today = new Date();
+       // Falta tomar en cuenta el usuario q hizo la anulacion.
     
+       const updateDocs = await Pagodetalle.updateMany( 
+                            { idpago:idpagoDB, estatus:true },
+                            { estatus:false },
+                            { new:true }
+                          ).session(session);
+
+        // Si no se encontró ningún detalle para actualizar, devolver un error 404
+        if (updateDocs.modifiedCount === 0) {
+            await session.abortTransaction();
+            return res.status(404).json({
+              ok: false,
+              msg: 'Detalles de pago no encontrados',
+            });
+        }
+       
+        const pagodetalle = await Pagodetalle.find({ idpago:idpagoDB }).sort({ _id:1 });
+    
+        for (const pdetalle of pagodetalle){
+            const cuotaDB = await Cuota.findById(pdetalle.idcuota);
+
+            if( (cuotaDB.motivo === '1') || (pdetalle.fechageneracion.toDateString() !== cuotaDB.fechageneracion.toDateString()) ){
+                await Cuota.findByIdAndUpdate(
+                  { _id:pdetalle.idcuota}, 
+                  { $inc: { saldo:pdetalle.monto }, senal: 1 }
+                ).session(session);
+                
+                fechaUltimaCuota = cuotaDB.fechacuota;
+
+             } else if ((cuotaDB.motivo === '2') && (pdetalle.fechageneracion.toDateString() === cuotaDB.fechageneracion.toDateString())){
+                 //tratar cuota de abono
+                 await Cuota.findByIdAndUpdate(
+                   { _id:pdetalle.idcuota }, 
+                   { estatus:false} 
+                 ).session(session);
+                 
+                 isAbono = true
+             }
+        }
+        const newSaldo = isAbono ? saldoantedelpagoDB : montoDB;
+      
+        if(isNaN(new Date(fechaUltimaCuota))){
+            fechaUltimaCuota = await Apartamento.findById(
+                                   { _id:idapartametoDB }
+                                ).select('fechaultimacuota')
+        };
+
+        const querySaldo = isAbono 
+                           ? {  saldomantenimiento:newSaldo  ,fechaultimacuota: fechaUltimaCuota } 
+                           : {  $inc: { saldomantenimiento:newSaldo },fechaultimacuota: fechaUltimaCuota } 
+
+        await Apartamento.findByIdAndUpdate(
+          { _id:idapartametoDB }, 
+          querySaldo
+        ).session(session);
+
+        await Pago.findByIdAndUpdate(
+          { _id:idpagoDB },
+          { estatus:false }
+        ).session(session);
+
+        await session.commitTransaction();
+
+        res.status(200).json({
+           ok:true,
+           msg:'Registro Actualizado'
+        });
+
+   } catch (error) {
+        await session.abortTransaction();
+
+        console.log(error);
+        return res.status(500).json({
+            ok:false,
+            msg:'Error, Hable con el Administrador'
+        });
+   } finally{
+         session.endSession();
+   }
 }
 
 const buscarFormapago = async(req, res=response)=>{
@@ -355,14 +457,122 @@ const crearFormapago = async(req, res=response)=>{
 
     const { estatus, ...data}= req.body;
     
-    const formapago = new Formapago(data);
-    await formapago.save();
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const formapago = new Formapago(data);
+        await formapago.save({session});
+
+        await session.commitTransaction();
+    
+        res.status(200).json({
+            ok:true,
+            formapago
+        });
+        
+    } catch (error) {
+        await session.abortTransaction();
+
+        console.log(error);
+        return res.status(500).json({
+          ok: false,
+          msg: 'Error, Hable con el Administrador',
+        });
+    } finally{
+        session.endSession();
+    }
+};
+const resumenPagos = async(req, res = response) => {
+
+    // console.log('Resumen pago');
+    const apartamentos = await Apartamento.find({estatus:true});
+    const apartamentoIds = apartamentos.map(a => a._id);
+
+    let matchStage = { $match:{ $expr:{ $eq:[1,1]}}};
+
+    const { anio } = req.params;
+    if( anio !== '1' ){
+      console.log('entró..', anio)
+      matchStage = {$match:{ $expr:{ $eq:[{ $year:'$fechageneracion'}, parseInt(anio)]} }}
+    }
+
+    const pagos = await Pago.aggregate([
+      {
+        $match: {
+          idapartamento: { $in: apartamentoIds },
+          estatus: true
+
+        }
+      },
+      matchStage
+      ,
+      {
+        $group: {
+          _id: {
+            idapartamento: "$idapartamento",
+            mes: { $month: "$fechageneracion" }
+          },
+          monto: { $sum: "$monto" }
+        }
+      },
+      {
+        $group: {
+          _id: "$_id.idapartamento",
+          pagosPorMes: {
+            $push: {
+              mes: "$_id.mes",
+              monto: "$monto"
+            }
+          },
+          total: { $sum: "$monto" }
+        }
+      },
+      {
+        $lookup: {
+          from: "apartamentos",
+          localField: "_id",
+          foreignField: "_id",
+          as: "apartamento"
+        }
+      },
+      {
+        $project: {
+          codigo: { $arrayElemAt: [ "$apartamento.codigo", 0 ] },
+          pagosPorMes: 1,
+          total: 1
+        }
+      }
+    ]);
+  
+    // console.log('pagos..:', pagos)
+    // Transformar saldosPorMes para usar nombres de mes en lugar de números
+    pagos.forEach((c) => {
+        const pagosPorMes = {};
+        c.pagosPorMes.forEach((s) => {
+        const mes = new Date(Date.UTC((2022), s.mes , 1)).toLocaleString('default', { month: 'short' });
+        const mes_limpio = mes.replace('.','');
+         pagosPorMes[mes_limpio] = s.monto;
+        });
+        c.pagosPorMes = pagosPorMes;
+      });
+
+    // Ordenar por codigo de apartamento
+    pagos.sort( (a,b)=>{
+        if( a.codigo < b.codigo ){
+            return -1;
+        }
+        if( a.codigo > b.codigo ){
+            return 1;
+        }
+        return 0;
+    }); 
 
     res.status(200).json({
-        ok:true,
-        formapago
+      ok:true,
+      pagosPorApartamento: pagos
     });
-}
+  };
 
 module.exports ={
     pagoCuota,
@@ -372,5 +582,7 @@ module.exports ={
     buscarReciboByIdApartamento,
     buscarDetalleReciboByIdPago,
     buscarFormapago,
-    crearFormapago
+    crearFormapago,
+    anularPagoByIdPago,
+    resumenPagos
 }

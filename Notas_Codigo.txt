@@ -1,0 +1,276 @@
+
+import { Component, OnInit } from '@angular/core';
+
+// pdfMake 
+import * as pdfMake from "pdfmake/build/pdfmake";
+import * as pdfFonts from 'pdfmake/build/vfs_fonts';
+(<any>pdfMake).vfs = pdfFonts.pdfMake.vfs;
+
+import { IResumenCuotas } from 'src/app/interfaces/resumen-cuotas';
+import { CuotasService } from 'src/app/services/cuotas.service';
+
+
+@Component({
+  selector: 'app-cns-general',
+  templateUrl: './cns-general.component.html',
+  styleUrls: ['./cns-general.component.css']
+})
+export class CnsGeneralComponent implements OnInit {
+
+  public arrCuotas: IResumenCuotas[]= [];
+  public resumenCuotas: any[]= [];
+  public anioSeleccionado:number = 1;
+
+  constructor( private _cuotaService:CuotasService) { }
+
+  ngOnInit(): void {
+    // this.arrCuotas =[{
+    //   Apto:'A-101',
+    //   Ene:1200,
+    //   Feb:3200,
+    //   Mar:0,
+    //   Abr:4203,
+    //   May:5000,
+    //   Jun:700,
+    //   Jul:920,
+    //   Ago:6320,
+    //   Sep:1000,
+    //   Oct:7000,
+    //   Nov:750,
+    //   Dic:3200,
+    //   Total:27100
+    // },
+    // {
+    //   Apto:'A-102',
+    //   Ene:1200,
+    //   Feb:3200,
+    //   Mar:0,
+    //   Abr:4203,
+    //   May:5000,
+    //   Jun:700,
+    //   Jul:920,
+    //   Ago:6320,
+    //   Sep:1000,
+    //   Oct:7000,
+    //   Nov:750,
+    //   Dic:3200,
+    //   Total:27100
+    // },
+    // {
+    //   Apto:'A-103',
+    //   Ene:1200,
+    //   Feb:3200,
+    //   Mar:0,
+    //   Abr:4203,
+    //   May:5000,
+    //   Jun:700,
+    //   Jul:920,
+    //   Ago:6320,
+    //   Sep:1000,
+    //   Oct:7000,
+    //   Nov:750,
+    //   Dic:3200,
+    //   Total:27100
+    // },
+    // {
+    //   Apto:'A-104',
+    //   Ene:200,
+    //   Feb:3200,
+    //   Mar:0,
+    //   Abr:4203,
+    //   May:5000,
+    //   Jun:700,
+    //   Jul:920,
+    //   Ago:6320,
+    //   Sep:1000,
+    //   Oct:7000,
+    //   Nov:750,
+    //   Dic:3200,
+    //   Total:27100
+    // },
+    // {
+    //   Apto:'A-201',
+    //   Ene:300,
+    //   Feb:0,
+    //   Mar:0,
+    //   Abr:1950,
+    //   May:5000,
+    //   Jun:700,
+    //   Jul:920,
+    //   Ago:6320,
+    //   Sep:1000,
+    //   Oct:7000,
+    //   Nov:750,
+    //   Dic:3200,
+    //   Total:27100
+    // },
+    // {
+    //   Apto:'A-202',
+    //   Ene:300,
+    //   Feb:0,
+    //   Mar:0,
+    //   Abr:1950,
+    //   May:5000,
+    //   Jun:700,
+    //   Jul:920,
+    //   Ago:6320,
+    //   Sep:1000,
+    //   Oct:7000,
+    //   Nov:750,
+    //   Dic:3200,
+    //   Total:27100
+    // }]
+    // console.log(this.arrCuotas);
+  }
+  cargarCuotas(anioSeleccionado:number){
+    this._cuotaService.resumenCuotas(anioSeleccionado).subscribe(
+      (res)=>{
+        this.resumenCuotas = res;
+        console.log(this.resumenCuotas)
+      },
+      (err)=>{
+        console.log(err)
+      }
+    )
+  }
+
+  reporte(){
+
+    // Obtener los totales de cada columna
+    // const columnTotals = Array.from({ length: 14 }, () => 0);
+    //   this.resumenCuotas.forEach(p => {
+    //       columnTotals[0] += p.codigo;
+    //       columnTotals[1] += p.saldosPorMes.ene || 0;
+    //       columnTotals[2] += p.saldosPorMes.feb || 0;
+    //       columnTotals[3] += p.saldosPorMes.mar || 0;
+    //       columnTotals[4] += p.saldosPorMes.abr || 0;
+    //       columnTotals[5] += p.saldosPorMes.may || 0;
+    //       columnTotals[6] += p.saldosPorMes.jun || 0;
+    //       columnTotals[7] += p.saldosPorMes.jul || 0;
+    //       columnTotals[8] += p.saldosPorMes.ago || 0;
+    //       columnTotals[9] += p.saldosPorMes.sep || 0;
+    //       columnTotals[10] += p.saldosPorMes.oct || 0;
+    //       columnTotals[11] += p.saldosPorMes.nov || 0;
+    //       columnTotals[12] += p.saldosPorMes.dic || 0;
+    //       columnTotals[13] += p.total || 0;
+    //   });
+
+    const meses = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+
+      let columnTotals = [
+        '',
+        ...[1,2,3,4,5,6,7,8,9,10,11,12].map(month => {
+          let total = 0;
+          this.resumenCuotas.forEach(p => {
+            total += (p.saldosPorMes[meses[month]] || 0);
+          });
+          return total;
+        }),
+        this.resumenCuotas.reduce((sum, p)=> sum + (p.total * 1), 0)
+      ];
+      
+  
+    let cantPago = this.resumenCuotas.length;
+    let docDefinition:any ={
+
+      pageOrientation:'landscape',
+
+      footer: {
+        columns: [
+          { text: 'Cosmos Digital SRL RNC:1-31-98720-6 Phone: 809-224-1509 Email:francisfiguereo@cdigital.com',
+            alignment: 'center',
+            fontSize:8,
+            bold:true,
+            color:'#560189'
+          }
+        ]
+      },
+      content:[
+        {  
+          text: 'CONDOMINIO PLAZA MIRADOR',  
+          fontSize: 16,  
+          alignment: 'center',  
+          color: '#047886'  
+        }, 
+        { text:'Ave. Anacaona #43, Bella Vista D.N, R.D',
+          alignment: 'center'
+        },
+        { text:'RNC 4-30-17865-9', alignment: 'center'},
+        { text:' '},
+        { text:' '},
+        { text:' '},
+
+        {
+          text:`Resumen General de Saldo por Mes`,
+          fontSize: 14,
+          // bold:true,
+          color: '#047886'
+        },
+        // {
+        //   text:`${this.resumenCuotas[0].codigo} `,
+        //   fontSize: 25,
+        //   bold:true,
+        //   color: '#047886' 
+        // },
+        { text:' '},
+
+        {
+          columns:[
+
+            [
+              {
+                text:`Cantidad de Apartementos:  *** ${cantPago} *** `,
+                // bold:true,
+                color:'#047886',
+                fontSize: 12
+              },
+            ],
+
+          ]
+        },
+        
+        {
+          table:{
+            headerRows: 1,
+            widths: ['*','auto', 'auto','auto','auto','auto','auto','auto','auto','auto','auto','auto','auto','auto'],
+            body: [
+                    [  {text:'APTO', bold:true}, {text:'ENE', bold:true}, {text:'FEB', bold:true},
+                       {text:'MAR', bold:true},  {text:'ABR', bold:true}, {text:'MAY', bold:true} ,
+                       {text:'JUN', bold:true},  {text:'JUL', bold:true}, {text:'AGO', bold:true} ,
+                       {text:'SEP', bold:true},  {text:'OCT', bold:true}, {text:'NOV', bold:true} ,
+                       {text:'DIC', bold:true}, {text:'TOTAL', bold:true} ],
+                        ...this.resumenCuotas.map(p => ([ p.codigo,
+                             {text: p.saldosPorMes.ene?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.feb?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.mar?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.abr?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.may?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.jun?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.jul?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.ago?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.sep?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.oct?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.nov?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.saldosPorMes.dic?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'},
+                             {text: p.total?.toLocaleString('en-ES', {style: 'decimal', currency: 'INR', minimumFractionDigits: 2}), alignment:'right'}
+                             
+                          ])
+                        ), 
+                        [ { text: 'Total', bold: true },  ...columnTotals.map(total => ({ text: total.toLocaleString('en-ES', { style: 'decimal', currency: 'INR', minimumFractionDigits: 2 }), alignment: 'right' }))]
+            ]
+          } //sdfsd
+        },
+        [
+          {
+            text: `impresión: ${new Date().toLocaleString()}`,
+            alignment: 'right'
+          }
+        ]
+      ]
+    }
+    const pdf = pdfMake.createPdf(docDefinition);
+    pdf.open();
+  }
+
+}
+
