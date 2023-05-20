@@ -61,13 +61,10 @@ const generarCuotas = async (req, res=response)=>{
     const [startDate,endDate] = firstDayLastDayMonth(fechacuotas);
 
     try {
-         //Buscar si el proceso ya ha sido ejecutado
-           const queryProc = {fechaproceso:startDate, estatus:true};
-           const procesocuotaExist = await Procesocuota.find(queryProc);
+         //Verificar si el proceso ya ha sido ejecutado
+           const procesoCuota = await Procesocuota.findOne( {fechaproceso:startDate, estatus:true} );
 
-
-
-           if (procesocuotaExist.length > 0 ){
+           if (procesoCuota ){
                 return res.status(400).json({
                     msg:'Proceso Cuota ya fue Generado para este mes'
                 })
@@ -83,24 +80,20 @@ const generarCuotas = async (req, res=response)=>{
                })
             }
 
-            apartamentoDB.forEach( async(apto)=>{
-
-                let query = '';
-                if (fecpagoCompara.toDateString() === fechaCompara.toDateString()){
-                    query = [{idapartamento:apto._id}, {estatus:true}]
-                }else{
-                    query = [{ idapartamento:apto._id}, {estatus:true},
-                             { fechacuota: {$gte:startDate, $lte:endDate} }
-                            ]
-                }    
+            // const nuevasCuotas = [];
+            const nuevasCuotas = await Promise.all(
+              apartamentoDB.map( async(apto)=>{
+                const query = fecpagoCompara.toDateString() === fechaCompara.toDateString()
+                  ? [ { idapartamento:apto._id}, {estatus:true} ]
+                  : [
+                      { idapartamento:apto._id},
+                      { estatus:true },
+                      { fechacuota: {$gte:startDate, $lte:endDate} }
+                    ];     
 
                 const cuotaExist = await Cuota.find( {$and:query} );
-                // const cuotaExist = await Cuota.find( {$and:query} ).lean();
-                // db.posts.find({created_on: {$gte: start, $lt: end}}); It is between
-
                 if(cuotaExist.length > 0  || !cuotaExist){
-                    // console.log('Ya hay cuotas, no insert')
-                    return;
+                    return null
                 };
 
                 let cuotaData ={
@@ -117,15 +110,26 @@ const generarCuotas = async (req, res=response)=>{
 
                 //actualiar el saldo del apartamento y fecha ultima cuota
                 let saldoMantenimiento = 0;
-                saldoMantenimiento = parseInt(apto.saldomantenimiento) + parseInt(cuota.monto);
-                await Apartamento.findByIdAndUpdate({_id:cuota.idapartamento},
-                                                    {saldomantenimiento:saldoMantenimiento,
-                                                     fechaultimacuota:cuota.fechacuota}, {new:true});
-            });
+                saldoMantenimiento = parseFloat(apto.saldomantenimiento) + parseFloat(cuota.monto);
+                await Apartamento.findByIdAndUpdate(  {_id:cuota.idapartamento},
+                                                      {
+                                                       saldomantenimiento:saldoMantenimiento,
+                                                       fechaultimacuota:cuota.fechacuota
+                                                      },
+                                                      {new:true}
+                );
 
-            // buscar cuotas para retornarlas
-            const cuotas = await Cuota.find().populate('idapartamento');
+                return cuota;
+              })
+            );
 
+            // Filtrar cuotas nulas
+            let cuotas = nuevasCuotas.filter((cuota) => cuota !== null);
+
+            // Buscar cuotas para retornarlas, solo las del proceso
+            const nuevasCuotasIds = cuotas.map( c =>c._id);
+            cuotas = await Cuota.find({_id:{ $in:nuevasCuotasIds} }).populate('idapartamento', 'codigo saldomantenimiento')
+                                                                                                          
             //Insertar proceso del mes
             let dataproc = {
                 fechaproceso:startDate
@@ -222,11 +226,14 @@ const buscarCuotaByIdApartamento = async(req, res=response)=>{
 
     try {
         //Denny it get me an array with only row, I will like catch in an object 
-        const procesocuotamax = await Procesocuota.find({estatus:true}).sort({fechaproceso:-1}).limit(1);
+        const procesocuotamax = await Procesocuota.findOne({estatus:true}).sort({fechaproceso:-1}).limit(1);
 
+        const [startDate,endDate] = firstDayLastDayMonth(procesocuotamax.fechaproceso);
+
+     
         res.status(200).json({
             ok:true,
-            procesocuotamax
+            endDate
         })
 
     } catch (error) {
@@ -321,7 +328,7 @@ const resumenCuotas = async(req, res = response) => {
 
     const { anio } = req.params;
     if( anio !== '1' ){
-      console.log('entró..', anio)
+      // console.log('entró..', anio)
       matchStage = {$match:{ $expr:{ $eq:[{ $year:'$fechacuota'}, parseInt(anio)]} }}
     }
   
@@ -398,7 +405,7 @@ const resumenCuotas = async(req, res = response) => {
       ok:true,
       saldosPorApartamento: cuotas
     });
-  };
+};
 const validarSaldos = async(req, res=response)=>{
 
     const saldoAtpoCuota = await Apartamento.aggregate([
@@ -436,7 +443,199 @@ const validarSaldos = async(req, res=response)=>{
         saldosDiff
     })
 }
+
+const R_generarCuotaExtraordinaria = async(req, res=response)=>{
+  console.log('generarCuotaExtraordinaria');
   
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const monto = 2000;
+    const fechacuota = '07-04-2023';
+    const idapto = null //'6361478ca9043c9bd54ac138'
+
+    const motivo = idapto? '4': '3' ;
+    const query  = idapto? {estatus:true, _id:idapto}:{estatus:true};
+    console.log('query..:*** ', query);
+
+    const apartamentoDB = await Apartamento.find(query ).select({_id:1, saldomantenimiento:1});
+    // console.log(idapartamento, motivo);
+
+    if (apartamentoDB.length === 0) {
+      await session.abortTransaction();
+
+      return res.status(404).json({
+        ok: false,
+        msg: 'No se encontraron apartamentos',
+      });
+    }
+    
+    const nuevasCuotas = [];
+    
+    for (const apartamento of apartamentoDB){
+      console.log('in for cuota', apartamento);
+
+      const dataCuota = {
+        idapartamento:apartamento._id,
+        fechacuota:fechacuota,
+        monto:monto,
+        saldo:monto,
+        motivo: motivo
+      };   
+
+      // console.log('dataCuota', dataCuota);
+
+      const cuota = new Cuota(dataCuota);
+      nuevasCuotas.push(cuota);
+      console.log('nuevasCuotas', nuevasCuotas);
+
+      await cuota.save({session});
+
+      let saldomantenimiento = parseFloat(apartamento.saldomantenimiento) + parseFloat(cuota.monto)
+
+      await Apartamento.findByIdAndUpdate(
+        { _id:apartamento._id },
+        { saldomantenimiento:saldomantenimiento },
+        { new:true, session }
+      );
+    };
+
+    // await session.commitTransaction();
+    await session.abortTransaction();
+    session.endSession();
+
+    // const cuotasNuevas = await Cuota.find( {_id: {$in: nuevasCuotas.map( c=>c._id)} });
+
+    const [cuotasNuevas, total] = await Promise.all([
+      Cuota.find({ _id: {$in: nuevasCuotas.map( c=>c._id)} }),
+      Cuota.find({ _id: {$in: nuevasCuotas.map( c=>c._id)} }).countDocuments()
+    ]);
+
+    res.status(200).json({
+      ok:true,
+      msg:'Cuota Extraordinaria Generada',
+      cuotas:cuotasNuevas,
+      cantidad:total,
+      motivo
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
+    console.log(error)
+    return res.status(500).json({
+          ok:false,
+          msg:'Error generando Cuota Extraordinaria'
+    });
+  } finally{
+    session.endSession();
+  }
+};
+
+//  Sustituyendo findByIdAndUpdate por bulkWrite 
+const generarCuotaExtraordinaria = async(req, res=response)=>{
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  const CUOTAEXTRA = 3;
+  const NOTADEBITO = 4;
+
+  try {
+    
+    const {monto, idapto} = req.params;
+    // const {monto, idapto, comentario, fechacuota} = req.body; pendiente cambio
+    const fechacuota = new Date();
+  
+    const motivo = idapto? NOTADEBITO: CUOTAEXTRA ;
+    const query  = idapto? {estatus:true, _id:idapto}:{estatus:true};
+
+    const apartamentoDB = await Apartamento.find(query ).select({_id:1, saldomantenimiento:1});
+
+    if (apartamentoDB.length === 0) {
+      await session.abortTransaction();
+
+      return res.status(404).json({
+        ok: false,
+        msg: 'No se encontraron apartamentos',
+      });
+    };
+
+    const bulkOps = [];
+    const nuevasCuotas = [];
+    
+    for (const apartamento of apartamentoDB){
+    
+      const dataCuota = {
+        idapartamento:apartamento._id,
+        fechacuota:fechacuota,
+        monto:monto,
+        saldo:monto,
+        motivo: motivo
+      };   
+    
+
+      const cuota = new Cuota(dataCuota);
+    
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: apartamento._id },
+          update: { $inc: { saldomantenimiento: cuota.monto } }
+        }
+      });
+
+      nuevasCuotas.push(cuota);
+
+      await cuota.save({session});
+    };
+    
+    await Apartamento.bulkWrite(bulkOps, { session });
+
+    // Buscar solo las nuevas cuotas insertadas
+    // const cuotasNuevas = await Cuota.find({ _id: {$in: nuevasCuotas.map(c=>c._id) }})
+        
+    const [cuotasNuevas, total] = await Promise.all([
+      Cuota.find({ 
+        _id:{$in: nuevasCuotas.map(c=>c._id)},
+        // estatus:true,
+        // saldo: {$gt:0},
+        // motivo:{ $in: [3, 4] } 
+      })
+        .populate('idapartamento','codigo').sort({idapartamento:1})
+        .session(session),
+
+      Cuota.find({ _id:{$in: nuevasCuotas.map(c=>c._id)} })
+        .countDocuments()
+        .session(session)
+    ]);
+    
+    await session.commitTransaction();
+    // await session.abortTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      ok:true,
+      msg:'Cuota Extraordinaria Generada',
+      cuotas:cuotasNuevas,
+      cantidad:total,
+      motivo
+    });
+
+  } catch (error) {
+    console.log(error);
+    await session.abortTransaction();
+    session.endSession();
+
+    return res.status(500).json({
+      ok:false,
+      msg:'Error generando Cuota Extraordinaria'
+    })
+  } finally{
+    session.endSession();
+  }
+
+}
 
 module.exports ={
     crearCuota,
@@ -448,5 +647,6 @@ module.exports ={
     procUdateCuotaApto,
     buscarProcesoCuotaMax,
     resumenCuotas,
-    validarSaldos
+    validarSaldos,
+    generarCuotaExtraordinaria
 }

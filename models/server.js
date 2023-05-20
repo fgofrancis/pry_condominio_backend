@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const fileUpload = require('express-fileupload');
+const path = require('path'); // Esto lo agregué yo.
 
 const { dbConnection } = require('../database/config');
 
@@ -82,6 +83,11 @@ class Server{
         this.app.use(this.paths.apartamentos,   require('../routes/apartamentos.routes' ) );
         this.app.use(this.paths.cuotas,         require('../routes/cuotas.routes' ) );
         this.app.use(this.paths.pagos,          require('../routes/pagos.routes' ) );
+
+        // Lo ultimo
+        this.app.get('*', (req, res)=>{
+            res.sendFile(path.resolve( __dirname, 'public/index.html'))
+        });
 
         /* Lo refactorice por lo de arriba */
         // this.app.use(this.authPath, require('../routes/auth.routes') );

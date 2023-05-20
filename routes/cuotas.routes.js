@@ -11,7 +11,8 @@ const { crearCuota,
         procUdateCuotaApto,
         buscarProcesoCuotaMax,
         resumenCuotas,
-        validarSaldos
+        validarSaldos,
+        generarCuotaExtraordinaria
      } = require('../controllers/cuotas.controller');
 
 
@@ -21,6 +22,9 @@ const router = Router();
 router.get('/', getCuotas);
 
 router.post('/', crearCuota);
+router.get('/generarcuotaextraordinaria/:monto/:idapto?', generarCuotaExtraordinaria);
+// router.post('/generarcuotaextraordinaria', generarCuotaExtraordinaria); Pendiente
+
 router.get('/generarcuotas/:fechacuotas', generarCuotas);
 router.get('/procesocuotamax/', buscarProcesoCuotaMax);
 

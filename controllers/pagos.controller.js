@@ -35,16 +35,13 @@ const pagoCuota = async(req, res)=>{
  
     // return
 
-    let pago = monto;
+    let pago = parseFloat(monto);
     let arrPagodetalle =[];
 
     //Actualizar Balance del apartamento
     const apartamentoDB = await Apartamento.findById(idapartamento);
-
     let balance = 0;
-    // let saldoantedelpago = 0;
     let saldodespuesdelpago = 0;
-
     const saldoantedelpago = parseFloat(apartamentoDB.saldomantenimiento);
 
     if ( parseFloat(monto) <= parseFloat(apartamentoDB.saldomantenimiento)   ){
@@ -69,9 +66,8 @@ const pagoCuota = async(req, res)=>{
 
     //Aplicar pago a cuotas
     let cuotas = await Cuota.find({
-                        $and:[{idapartamento:idapartamento},
-                            {senal:'1'}, {estatus:true}]
-                    });
+        $and:[{idapartamento:idapartamento},{senal:'1'}, {estatus:true}]
+    });
     
     if(cuotas){
 
