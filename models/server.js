@@ -51,11 +51,12 @@ class Server{
     middleware(){
 
         // CORS
-        // this.app.use(cors() );
-        this.app.use(cors({
-            origin: 'https://enchanting-sawine-5a2e5f.netlify.app',
-            optionsSuccessStatus: 200, // Algunos navegadores antiguos (como IE11) pueden requerir esto para permitir el acceso a los encabezados personalizados
-          }));
+        this.app.use(cors() );
+
+        // this.app.use(cors({
+        //     origin: 'https://enchanting-sawine-5a2e5f.netlify.app',
+        //     optionsSuccessStatus: 200, // Algunos navegadores antiguos (como IE11) pueden requerir esto para permitir el acceso a los encabezados personalizados
+        //   }));
           
 
 
