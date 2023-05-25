@@ -12,6 +12,8 @@ const login =  async(req, res=response )=>{
     console.log('pass..: ', password);
 
     try {
+        console.log(`I am in the login..: ${correo}`);
+
         //Verificar si el email existe
         const usuario = await Usuario.findOne({correo});
 
@@ -53,7 +55,7 @@ const login =  async(req, res=response )=>{
         console.log(error);
         return res.status(500).json({
             ok:false,
-            msg:'Hable con el Administrador - loginxx'
+            msg:'Hable con el Administrador - loginFF'
         })
     }
 }
